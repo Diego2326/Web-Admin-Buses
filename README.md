@@ -1,73 +1,57 @@
-# React + TypeScript + Vite
+# Web Admin Buses
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Panel web administrativo y operativo para la API Buses.
 
-Currently, two official plugins are available:
+## Configuración
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+1. Instala dependencias:
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+2. Crea tu archivo `.env` a partir de `.env.example`.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+cp .env.example .env
 ```
+
+3. Ajusta la URL base del backend si no corre en local:
+
+```env
+VITE_API_BASE_URL=http://localhost:8080/api/v1
+```
+
+## Desarrollo
+
+```bash
+npm run dev
+```
+
+## Build y validación
+
+```bash
+npm run build
+npm run lint
+```
+
+## Qué incluye
+
+- login real por `POST /auth/login`
+- restauración de sesión por `GET /auth/me`
+- cierre de sesión por `POST /auth/logout`
+- dashboard con `/dashboard` y `/operations-map`
+- vistas de consulta para buses, paradas, rutas, tarifas, usuarios, pagos y reportes
+- acciones rápidas para `ADMIN` y `OPERATOR`:
+  - cambio de estado de buses
+  - cambio de rol y estado de usuarios
+  - reset de contraseña
+  - registro manual de pagos
+  - reversa de pagos completados
+  - recálculo de geometría de rutas
+
+## Notas
+
+- `INSPECTOR` entra en modo solo lectura.
+- Si el backend no está disponible, el frontend muestra errores de conexión contra la base URL configurada.
+- El backend esperado usa JWT stateless con encabezado `Authorization: Bearer <token>`.
