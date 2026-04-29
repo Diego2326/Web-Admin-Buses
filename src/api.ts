@@ -104,6 +104,19 @@ export type Bus = {
   status: OperationalStatus
 }
 
+export type BusQrCodeResponse = {
+  busId: string
+  busCode: string
+  busPlate: string
+  routeId: string | null
+  routeName: string
+  routeOrigin: string | null
+  routeDestination: string | null
+  qrValue: string
+  qrImageUrl: string
+  provider: string
+}
+
 export type Stop = {
   id: string
   code: string
@@ -338,6 +351,10 @@ export const api = {
 
   getBus(token: string, busId: string, signal?: AbortSignal) {
     return request<Bus>(`/buses/${busId}`, { token, signal })
+  },
+
+  getBusQr(token: string, busId: string, signal?: AbortSignal) {
+    return request<BusQrCodeResponse>(`/buses/${busId}/qr`, { token, signal })
   },
 
   createBus(

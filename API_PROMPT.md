@@ -243,6 +243,27 @@ Response:
 
 Response: detalle de bus.
 
+#### GET `/buses/{id}/qr`
+
+Genera el QR operativo del bus para escaneo en app móvil.
+
+Response:
+
+```json
+{
+  "busId": "uuid",
+  "busCode": "BUS-102",
+  "busPlate": "C 102 BAA",
+  "routeId": "uuid",
+  "routeName": "Ruta 12 Centro",
+  "routeOrigin": "Terminal Oriente",
+  "routeDestination": "Parque Central",
+  "qrValue": "{\"type\":\"BUS_BOARDING\",\"busId\":\"uuid\",\"busCode\":\"BUS-102\",\"busPlate\":\"C 102 BAA\",\"routeId\":\"uuid\",\"routeName\":\"Ruta 12 Centro\",\"routeOrigin\":\"Terminal Oriente\",\"routeDestination\":\"Parque Central\"}",
+  "qrImageUrl": "https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=...",
+  "provider": "goQR.me"
+}
+```
+
 #### POST `/buses`
 
 Request:
