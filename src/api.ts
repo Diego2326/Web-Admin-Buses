@@ -228,7 +228,7 @@ export type ReportsFilters = {
 }
 
 type RequestOptions = {
-  method?: 'GET' | 'POST' | 'PUT' | 'PATCH'
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   token?: string
   body?: unknown
   signal?: AbortSignal
@@ -336,6 +336,45 @@ export const api = {
     return request<PageResponse<Bus>>(`/buses${buildQuery(filters)}`, { token, signal })
   },
 
+  getBus(token: string, busId: string, signal?: AbortSignal) {
+    return request<Bus>(`/buses/${busId}`, { token, signal })
+  },
+
+  createBus(
+    token: string,
+    body: { plate: string; code: string; capacity: number; routeId?: string | null; status: OperationalStatus },
+    signal?: AbortSignal,
+  ) {
+    return request<Bus>('/buses', {
+      method: 'POST',
+      token,
+      body,
+      signal,
+    })
+  },
+
+  updateBus(
+    token: string,
+    busId: string,
+    body: { plate: string; code: string; capacity: number; routeId?: string | null; status: OperationalStatus },
+    signal?: AbortSignal,
+  ) {
+    return request<Bus>(`/buses/${busId}`, {
+      method: 'PUT',
+      token,
+      body,
+      signal,
+    })
+  },
+
+  deleteBus(token: string, busId: string, signal?: AbortSignal) {
+    return request<Bus>(`/buses/${busId}`, {
+      method: 'DELETE',
+      token,
+      signal,
+    })
+  },
+
   patchBusStatus(token: string, busId: string, status: OperationalStatus, signal?: AbortSignal) {
     return request<Bus>(`/buses/${busId}/status`, {
       method: 'PATCH',
@@ -347,6 +386,45 @@ export const api = {
 
   getStops(token: string, filters: StopsFilters, signal?: AbortSignal) {
     return request<PageResponse<Stop>>(`/stops${buildQuery(filters)}`, { token, signal })
+  },
+
+  getStop(token: string, stopId: string, signal?: AbortSignal) {
+    return request<Stop>(`/stops/${stopId}`, { token, signal })
+  },
+
+  createStop(
+    token: string,
+    body: { code: string; name: string; address: string; latitude: number; longitude: number; status: OperationalStatus },
+    signal?: AbortSignal,
+  ) {
+    return request<Stop>('/stops', {
+      method: 'POST',
+      token,
+      body,
+      signal,
+    })
+  },
+
+  updateStop(
+    token: string,
+    stopId: string,
+    body: { code: string; name: string; address: string; latitude: number; longitude: number; status: OperationalStatus },
+    signal?: AbortSignal,
+  ) {
+    return request<Stop>(`/stops/${stopId}`, {
+      method: 'PUT',
+      token,
+      body,
+      signal,
+    })
+  },
+
+  deleteStop(token: string, stopId: string, signal?: AbortSignal) {
+    return request<Stop>(`/stops/${stopId}`, {
+      method: 'DELETE',
+      token,
+      signal,
+    })
   },
 
   getRoutes(token: string, filters: RoutesFilters, signal?: AbortSignal) {
@@ -365,12 +443,125 @@ export const api = {
     })
   },
 
+  createRoute(
+    token: string,
+    body: { name: string; stopIds: string[]; status: OperationalStatus },
+    signal?: AbortSignal,
+  ) {
+    return request<RouteDetail>('/routes', {
+      method: 'POST',
+      token,
+      body,
+      signal,
+    })
+  },
+
+  updateRoute(
+    token: string,
+    routeId: string,
+    body: { name: string; stopIds: string[]; status: OperationalStatus },
+    signal?: AbortSignal,
+  ) {
+    return request<RouteDetail>(`/routes/${routeId}`, {
+      method: 'PUT',
+      token,
+      body,
+      signal,
+    })
+  },
+
+  deleteRoute(token: string, routeId: string, signal?: AbortSignal) {
+    return request<RouteDetail>(`/routes/${routeId}`, {
+      method: 'DELETE',
+      token,
+      signal,
+    })
+  },
+
   getFares(token: string, filters: FaresFilters, signal?: AbortSignal) {
     return request<PageResponse<Fare>>(`/fares${buildQuery(filters)}`, { token, signal })
   },
 
+  getFare(token: string, fareId: string, signal?: AbortSignal) {
+    return request<Fare>(`/fares/${fareId}`, { token, signal })
+  },
+
+  createFare(
+    token: string,
+    body: { name: string; amount: number; validFrom: string; validTo: string; status: OperationalStatus },
+    signal?: AbortSignal,
+  ) {
+    return request<Fare>('/fares', {
+      method: 'POST',
+      token,
+      body,
+      signal,
+    })
+  },
+
+  updateFare(
+    token: string,
+    fareId: string,
+    body: { name: string; amount: number; validFrom: string; validTo: string; status: OperationalStatus },
+    signal?: AbortSignal,
+  ) {
+    return request<Fare>(`/fares/${fareId}`, {
+      method: 'PUT',
+      token,
+      body,
+      signal,
+    })
+  },
+
+  deleteFare(token: string, fareId: string, signal?: AbortSignal) {
+    return request<Fare>(`/fares/${fareId}`, {
+      method: 'DELETE',
+      token,
+      signal,
+    })
+  },
+
   getUsers(token: string, filters: UsersFilters, signal?: AbortSignal) {
     return request<PageResponse<StaffUser>>(`/users${buildQuery(filters)}`, { token, signal })
+  },
+
+  getUser(token: string, userId: string, signal?: AbortSignal) {
+    return request<StaffUser>(`/users/${userId}`, { token, signal })
+  },
+
+  createUser(
+    token: string,
+    body: { name: string; email: string; role: UserRole; password: string; status: UserStatus },
+    signal?: AbortSignal,
+  ) {
+    return request<StaffUser>('/users', {
+      method: 'POST',
+      token,
+      body,
+      signal,
+    })
+  },
+
+  updateUser(
+    token: string,
+    userId: string,
+    body: { name: string; email: string; role: UserRole; status: UserStatus },
+    signal?: AbortSignal,
+  ) {
+    return request<StaffUser>(`/users/${userId}`, {
+      method: 'PUT',
+      token,
+      body,
+      signal,
+    })
+  },
+
+  deleteUser(token: string, userId: string, signal?: AbortSignal) {
+    return request<StaffUser>(`/users/${userId}`, {
+      method: 'DELETE',
+      token,
+      signal,
+    })
   },
 
   patchUserStatus(token: string, userId: string, status: UserStatus, signal?: AbortSignal) {
@@ -404,6 +595,10 @@ export const api = {
     return request<PageResponse<Payment>>(`/payments${buildQuery(filters)}`, { token, signal })
   },
 
+  getPayment(token: string, paymentId: string, signal?: AbortSignal) {
+    return request<Payment>(`/payments/${paymentId}`, { token, signal })
+  },
+
   createPayment(
     token: string,
     body: {
@@ -419,6 +614,36 @@ export const api = {
       method: 'POST',
       token,
       body,
+      signal,
+    })
+  },
+
+  updatePayment(
+    token: string,
+    paymentId: string,
+    body: {
+      userId: string
+      busId: string
+      amount: number
+      method: PaymentMethod
+      date: string
+      externalReference?: string
+      status?: PaymentStatus
+    },
+    signal?: AbortSignal,
+  ) {
+    return request<Payment>(`/payments/${paymentId}`, {
+      method: 'PUT',
+      token,
+      body,
+      signal,
+    })
+  },
+
+  deletePayment(token: string, paymentId: string, signal?: AbortSignal) {
+    return request<{ success: boolean }>(`/payments/${paymentId}`, {
+      method: 'DELETE',
+      token,
       signal,
     })
   },

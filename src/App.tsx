@@ -3,7 +3,6 @@ import { startTransition, useEffect, useRef, useState, type FormEvent, type Reac
 import 'leaflet/dist/leaflet.css'
 import './App.css'
 import {
-  API_BASE_URL,
   ApiError,
   api,
   type Bus,
@@ -18,6 +17,7 @@ import {
   type PaymentMethod,
   type PaymentStatus,
   type RouteDetail,
+  type RoutePath,
   type RouteReport,
   type RouteSummary,
   type StaffUser,
@@ -63,6 +63,7 @@ type BusesPageProps = {
 
 type StopsPageProps = {
   token: string
+  canManage: boolean
 }
 
 type RoutesPageProps = {
@@ -72,6 +73,7 @@ type RoutesPageProps = {
 
 type FaresPageProps = {
   token: string
+  canManage: boolean
 }
 
 type UsersPageProps = {
@@ -128,7 +130,7 @@ const PAGES: PageMeta[] = [
     id: 'dashboard',
     label: 'Dashboard',
     title: 'Operación en tiempo real',
-    copy: 'Resumen operativo, mapa y métricas del día según la API del backend.',
+    copy: 'Resumen general de operación, cobertura y actividad del día.',
   },
   {
     id: 'buses',
@@ -164,13 +166,13 @@ const PAGES: PageMeta[] = [
     id: 'payments',
     label: 'Pagos',
     title: 'Cobros y reversas',
-    copy: 'Registro manual de pagos, trazabilidad y reversa de cobros completados.',
+    copy: 'Registro de cobros, seguimiento de transacciones y gestión de reversas.',
   },
   {
     id: 'reports',
     label: 'Reportes',
     title: 'Corte ejecutivo',
-    copy: 'Resumen agregado y rankings por ruta, bus y transacciones reportadas.',
+    copy: 'Indicadores consolidados, comparativos por ruta y actividad reciente.',
   },
 ]
 
@@ -231,7 +233,7 @@ function getErrorMessage(error: unknown) {
     }
 
     if (error.message === 'Failed to fetch') {
-      return `No se pudo conectar con ${API_BASE_URL}.`
+      return 'No se pudo establecer la conexión en este momento.'
     }
 
     return error.message
@@ -304,6 +306,16 @@ function getPositionLabel(stop: Stop) {
   return 'Sin coordenadas'
 }
 
+type StopMarkerCandidate = {
+  id: string
+  code: string
+  name: string
+  status?: string
+  position?: [number, number] | null
+  latitude?: number
+  longitude?: number
+}
+
 function isCoordinatePair(value: unknown): value is [number, number] {
   return (
     Array.isArray(value) &&
@@ -313,6 +325,37 @@ function isCoordinatePair(value: unknown): value is [number, number] {
     typeof value[1] === 'number' &&
     Number.isFinite(value[1])
   )
+}
+
+function getCoordinatePosition(stop: Pick<StopMarkerCandidate, 'position' | 'latitude' | 'longitude'>) {
+  if (isCoordinatePair(stop.position)) {
+    return stop.position
+  }
+
+  if (typeof stop.latitude === 'number' && typeof stop.longitude === 'number') {
+    return [stop.latitude, stop.longitude] as [number, number]
+  }
+
+  return null
+}
+
+function createStopMarker(stop: StopMarkerCandidate) {
+  const position = getCoordinatePosition(stop)
+
+  if (!position) {
+    return null
+  }
+
+  return {
+    id: stop.id,
+    label: `${stop.code} · ${stop.name}`,
+    position,
+    ...(stop.status ? { status: stop.status } : {}),
+  } as MapMarker
+}
+
+function isMapMarker(value: MapMarker | null): value is MapMarker {
+  return value !== null
 }
 
 function App() {
@@ -409,7 +452,6 @@ function App() {
     try {
       await api.logout(session.token)
     } catch {
-      // El backend es stateless con JWT; si falla, igual se elimina la sesión local.
     } finally {
       clearSession()
       setSession(null)
@@ -421,9 +463,9 @@ function App() {
     return (
       <main className="boot-screen">
         <section className="boot-card">
-          <p className="eyebrow">API Buses</p>
+          <p className="eyebrow">Centro de control</p>
           <h1>Reconstruyendo sesión</h1>
-          <p>Validando el JWT guardado contra `GET /auth/me`.</p>
+          <p>Verificando acceso y restaurando tu espacio de trabajo.</p>
         </section>
       </main>
     )
@@ -449,12 +491,9 @@ function LoginForm({ pending, error, onLogin }: LoginFormProps) {
     <main className="login-shell">
       <section className="login-panel">
         <div className="hero-copy">
-          <p className="eyebrow">Web Admin</p>
-          <h1>Panel operativo conectado al backend real</h1>
-          <p>
-            Inicio de sesión por `POST /auth/login`, restauración por `GET /auth/me` y base URL configurable por
-            `VITE_API_BASE_URL`.
-          </p>
+          <p className="eyebrow">Acceso administrativo</p>
+          <h1>Centro de control operativo</h1>
+          <p>Gestiona flota, rutas, paradas, usuarios, pagos y reportes desde un solo panel.</p>
         </div>
 
         <form className="login-form" onSubmit={handleSubmit}>
@@ -484,8 +523,6 @@ function LoginForm({ pending, error, onLogin }: LoginFormProps) {
           <button className="primary-button" type="submit" disabled={pending}>
             {pending ? 'Ingresando...' : 'Ingresar'}
           </button>
-
-          <p className="form-hint">Backend esperado: {API_BASE_URL}</p>
         </form>
       </section>
     </main>
@@ -510,72 +547,81 @@ function AdminShell({ session, onLogout }: AdminShellProps) {
 
   return (
     <main className="app-shell">
-      <header className="topbar">
-        <div className="topbar-copy">
-          <p className="eyebrow">API Buses</p>
-          <h1>{page.title}</h1>
-          <p>{page.copy}</p>
+      <aside className="sidebar">
+        <div className="sidebar-brand">
+          <p className="eyebrow">Transporte urbano</p>
+          <strong>Centro de control</strong>
+          <span>Panel administrativo operativo</span>
         </div>
 
-        <div className="session-card">
-          <span className={`badge ${getStatusTone(session.user.status)}`}>{formatEnumLabel(session.user.status)}</span>
-          <strong>{session.user.name}</strong>
-          <span>{session.user.email}</span>
-          <span>{formatEnumLabel(session.user.role)}</span>
-          <small>{API_BASE_URL}</small>
+        <nav className="sidebar-nav" aria-label="Navegación principal">
+          {PAGES.map((item) => (
+            <button
+              key={item.id}
+              className={item.id === activePage ? 'active' : undefined}
+              type="button"
+              onClick={() => startTransition(() => setActivePage(item.id))}
+            >
+              <span>{item.label}</span>
+              <small>{item.title}</small>
+            </button>
+          ))}
+        </nav>
+
+        <div className="sidebar-card">
+          <p className="eyebrow">Acceso</p>
+          <strong>{canManage ? 'Modo operativo' : 'Modo consulta'}</strong>
+          <p>
+            {canManage
+              ? 'Puedes ejecutar cambios de estado, reversas y recalcular operaciones de campo.'
+              : 'Tu perfil está habilitado para consulta y seguimiento operativo.'}
+          </p>
         </div>
-      </header>
 
-      <div className="workspace">
-        <aside className="sidebar">
-          <nav className="sidebar-nav" aria-label="Navegación principal">
-            {PAGES.map((item) => (
-              <button
-                key={item.id}
-                className={item.id === activePage ? 'active' : undefined}
-                type="button"
-                onClick={() => startTransition(() => setActivePage(item.id))}
-              >
-                <span>{item.label}</span>
-                <small>{item.title}</small>
-              </button>
-            ))}
-          </nav>
-
-          <div className="sidebar-card">
-            <p className="eyebrow">Acceso</p>
-            <strong>{canManage ? 'Modo operativo' : 'Modo consulta'}</strong>
-            <p>
-              {canManage
-                ? 'Tu rol puede ejecutar cambios rápidos de estado, reversas y mantenimiento básico.'
-                : 'INSPECTOR solo tiene acceso de lectura sobre endpoints GET del panel.'}
-            </p>
-          </div>
-
+        <div className="sidebar-footer">
           <button className="secondary-button" type="button" onClick={handleLogoutClick} disabled={logoutPending}>
             {logoutPending ? 'Cerrando...' : 'Cerrar sesión'}
           </button>
-        </aside>
+        </div>
+      </aside>
+
+      <section className="app-main">
+        <header className="topbar">
+          <div className="topbar-copy">
+            <p className="eyebrow">Panel administrativo</p>
+            <h1>{page.title}</h1>
+            <p>{page.copy}</p>
+          </div>
+
+          <div className="session-card">
+            <div className="session-card-head">
+              <span className={`badge ${getStatusTone(session.user.status)}`}>{formatEnumLabel(session.user.status)}</span>
+              <small>{formatEnumLabel(session.user.role)}</small>
+            </div>
+            <strong>{session.user.name}</strong>
+            <span>{session.user.email}</span>
+          </div>
+        </header>
 
         <section className="page-area">
           {!canManage ? (
             <div className="notice-banner">
-              Tu sesión es de solo lectura. Las acciones `PATCH`, `POST` y `PUT` del panel quedan deshabilitadas.
+              Tu sesión está en modo consulta. Las acciones de administración están deshabilitadas.
             </div>
           ) : null}
 
           {activePage === 'dashboard' ? <DashboardPage token={session.token} /> : null}
           {activePage === 'buses' ? <BusesPage token={session.token} canManage={canManage} /> : null}
-          {activePage === 'stops' ? <StopsPage token={session.token} /> : null}
+          {activePage === 'stops' ? <StopsPage token={session.token} canManage={canManage} /> : null}
           {activePage === 'routes' ? <RoutesPage token={session.token} canManage={canManage} /> : null}
-          {activePage === 'fares' ? <FaresPage token={session.token} /> : null}
+          {activePage === 'fares' ? <FaresPage token={session.token} canManage={canManage} /> : null}
           {activePage === 'users' ? (
             <UsersPage token={session.token} currentUserId={session.user.id} canManage={canManage} />
           ) : null}
           {activePage === 'payments' ? <PaymentsPage token={session.token} canManage={canManage} /> : null}
           {activePage === 'reports' ? <ReportsPage token={session.token} /> : null}
         </section>
-      </div>
+      </section>
     </main>
   )
 }
@@ -584,7 +630,7 @@ function PageLayout({ title, copy, toolbar, children }: LayoutProps) {
   return (
     <div className="page-stack">
       <section className="section-hero">
-        <div>
+        <div className="section-heading">
           <p className="eyebrow">Vista</p>
           <h2>{title}</h2>
           <p>{copy}</p>
@@ -594,6 +640,120 @@ function PageLayout({ title, copy, toolbar, children }: LayoutProps) {
       {children}
     </div>
   )
+}
+
+function CrudActionButtons({
+  actions,
+  note,
+}: {
+  actions: Array<{
+    label: string
+    disabled?: boolean
+    variant?: 'primary-button' | 'secondary-button' | 'ghost-button'
+    onClick?: () => void
+  }>
+  note?: string
+}) {
+  return (
+    <div className="crud-actions">
+      <div className="crud-actions-list">
+        {actions.map((action) => (
+          <button
+            key={action.label}
+            className={action.variant ?? 'ghost-button'}
+            type="button"
+            onClick={action.onClick}
+            disabled={action.disabled ?? false}
+          >
+            {action.label}
+          </button>
+        ))}
+      </div>
+      {note ? <small className="crud-actions-note">{note}</small> : null}
+    </div>
+  )
+}
+
+function askText(label: string, initialValue = '') {
+  const value = window.prompt(label, initialValue)
+  if (value === null) {
+    return null
+  }
+
+  const trimmed = value.trim()
+  return trimmed ? trimmed : null
+}
+
+function askOptionalText(label: string, initialValue = '') {
+  const value = window.prompt(label, initialValue)
+  if (value === null) {
+    return null
+  }
+
+  return value.trim()
+}
+
+function askNumber(label: string, initialValue: number) {
+  const value = window.prompt(label, String(initialValue))
+  if (value === null) {
+    return null
+  }
+
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function askOperationalStatus(initialValue: OperationalStatus) {
+  const value = window.prompt('Estado: ACTIVE, INACTIVE, MAINTENANCE o SUSPENDED', initialValue)
+  if (value === null) {
+    return null
+  }
+
+  const normalized = value.trim().toUpperCase()
+  return OPERATIONAL_STATUSES.includes(normalized as OperationalStatus) ? (normalized as OperationalStatus) : null
+}
+
+function askUserStatus(initialValue: UserStatus) {
+  const value = window.prompt('Estado: ACTIVE, INACTIVE, MAINTENANCE o SUSPENDED', initialValue)
+  if (value === null) {
+    return null
+  }
+
+  const normalized = value.trim().toUpperCase()
+  return USER_STATUSES.includes(normalized as UserStatus) ? (normalized as UserStatus) : null
+}
+
+function askUserRole(initialValue: UserRole) {
+  const value = window.prompt('Rol: ADMIN, OPERATOR, INSPECTOR o PASSENGER', initialValue)
+  if (value === null) {
+    return null
+  }
+
+  const normalized = value.trim().toUpperCase()
+  return USER_ROLES.includes(normalized as UserRole) ? (normalized as UserRole) : null
+}
+
+function askPaymentMethod(initialValue: PaymentMethod) {
+  const value = window.prompt('Método: CARD, QR, CASH o WALLET', initialValue)
+  if (value === null) {
+    return null
+  }
+
+  const normalized = value.trim().toUpperCase()
+  return PAYMENT_METHODS.includes(normalized as PaymentMethod) ? (normalized as PaymentMethod) : null
+}
+
+function askEditablePaymentStatus(initialValue: Exclude<PaymentStatus, 'REVERSED'> | PaymentStatus) {
+  const fallbackValue = initialValue === 'REVERSED' ? 'FAILED' : initialValue
+  const value = window.prompt('Estado: COMPLETED, PENDING o FAILED', fallbackValue)
+  if (value === null) {
+    return null
+  }
+
+  const normalized = value.trim().toUpperCase()
+  return normalized === 'COMPLETED' || normalized === 'PENDING' || normalized === 'FAILED'
+    ? (normalized as Exclude<PaymentStatus, 'REVERSED'>)
+    : null
 }
 
 function DashboardPage({ token }: DashboardPageProps) {
@@ -637,7 +797,7 @@ function DashboardPage({ token }: DashboardPageProps) {
   return (
     <PageLayout
       title="Dashboard operativo"
-      copy="Consumido desde `/dashboard` y `/operations-map`, con métricas y trazos listos para operación."
+      copy="Monitoreo general de flota, cobertura y actividad diaria."
     >
       {error ? <ErrorBanner message={error} /> : null}
 
@@ -645,22 +805,22 @@ function DashboardPage({ token }: DashboardPageProps) {
         <StatCard
           label="Buses activos"
           value={String(dashboard?.metrics.activeBuses ?? (isLoading ? '...' : 0))}
-          caption="Fuente: `metrics.activeBuses`"
+          caption="Disponibilidad actual"
         />
         <StatCard
           label="Rutas registradas"
           value={String(dashboard?.metrics.registeredRoutes ?? (isLoading ? '...' : 0))}
-          caption="Fuente: `metrics.registeredRoutes`"
+          caption="Cobertura operativa"
         />
         <StatCard
           label="Pagos hoy"
           value={String(dashboard?.metrics.paymentsToday ?? (isLoading ? '...' : 0))}
-          caption="Fecha UTC del backend"
+          caption="Actividad del día"
         />
         <StatCard
           label="Ingresos hoy"
           value={dashboard ? formatCurrency(dashboard.metrics.revenueToday) : isLoading ? '...' : formatCurrency(0)}
-          caption="Fuente: `metrics.revenueToday`"
+          caption="Recaudación diaria"
         />
       </section>
 
@@ -674,7 +834,13 @@ function DashboardPage({ token }: DashboardPageProps) {
             <span className="soft-pill">{totalVisibleBuses} buses visibles</span>
           </div>
 
-          <OperationsMapView dashboardMarkers={dashboard?.mapMarkers ?? []} operationsMap={operationsMap} />
+          <OperationsMapView
+            ariaLabel="Mapa operativo de buses y rutas"
+            focusMarkers={dashboard?.mapMarkers ?? []}
+            busMarkers={operationsMap?.busMarkers ?? []}
+            stopMarkers={operationsMap?.stopMarkers ?? []}
+            routePaths={operationsMap?.routePaths ?? []}
+          />
         </article>
 
         <article className="panel">
@@ -712,7 +878,7 @@ function DashboardPage({ token }: DashboardPageProps) {
             ))}
 
             {!isLoading && !operationsMap?.routePaths.length ? (
-              <EmptyState title="Sin rutas en mapa" copy="`GET /operations-map` no devolvió trazos activos." />
+              <EmptyState title="Sin rutas en mapa" copy="No hay trazos disponibles para la vista actual." />
             ) : null}
           </div>
         </article>
@@ -790,37 +956,113 @@ function BusesPage({ token, canManage }: BusesPageProps) {
     )
   }
 
+  async function handleCreateBus() {
+    const code = askText('Código del bus')
+    if (!code) return
+    const plate = askText('Placa del bus')
+    if (!plate) return
+    const capacity = askNumber('Capacidad', 55)
+    if (capacity === null) return
+    const routeValue = askOptionalText('Ruta asignada (ID, opcional)', '')
+    if (routeValue === null) return
+    const nextStatus = askOperationalStatus('ACTIVE')
+    if (!nextStatus) return
+
+    await api.createBus(token, {
+      code,
+      plate,
+      capacity,
+      routeId: routeValue || null,
+      status: nextStatus,
+    })
+    setQuery((current) => ({ ...current }))
+  }
+
+  async function handleEditBus(bus: Bus) {
+    const code = askText('Código del bus', bus.code)
+    if (!code) return
+    const plate = askText('Placa del bus', bus.plate)
+    if (!plate) return
+    const capacity = askNumber('Capacidad', bus.capacity)
+    if (capacity === null) return
+    const routeValue = askOptionalText('Ruta asignada (ID, opcional)', bus.route?.id ?? '')
+    if (routeValue === null) return
+    const nextStatus = askOperationalStatus(bus.status)
+    if (!nextStatus) return
+
+    const updated = await api.updateBus(token, bus.id, {
+      code,
+      plate,
+      capacity,
+      routeId: routeValue || null,
+      status: nextStatus,
+    })
+
+    setData((current) =>
+      current
+        ? {
+            ...current,
+            content: current.content.map((item) => (item.id === bus.id ? updated : item)),
+          }
+        : current,
+    )
+  }
+
+  async function handleDeleteBus(bus: Bus) {
+    if (!window.confirm(`Eliminar el bus ${bus.code}?`)) {
+      return
+    }
+
+    const updated = await api.deleteBus(token, bus.id)
+    setData((current) =>
+      current
+        ? {
+            ...current,
+            content: current.content.map((item) => (item.id === bus.id ? updated : item)),
+          }
+        : current,
+    )
+  }
+
   return (
     <PageLayout
       title="Buses"
       copy="Filtros por búsqueda, estado y ruta con soporte para actualización rápida de estado."
       toolbar={
-        <form className="filters-grid compact" onSubmit={handleFilterSubmit}>
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Buscar por placa o código"
+        <div className="page-toolbar">
+          <form className="filters-grid compact" onSubmit={handleFilterSubmit}>
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Buscar por placa o código"
+            />
+            <select value={status} onChange={(event) => setStatus(event.target.value as OperationalStatus | '')}>
+              <option value="">Todos los estados</option>
+              {OPERATIONAL_STATUSES.map((item) => (
+                <option key={item} value={item}>
+                  {formatEnumLabel(item)}
+                </option>
+              ))}
+            </select>
+            <select value={routeId} onChange={(event) => setRouteId(event.target.value)}>
+              <option value="">Todas las rutas</option>
+              {(routes?.content ?? []).map((route) => (
+                <option key={route.id} value={route.id}>
+                  {route.name}
+                </option>
+              ))}
+            </select>
+            <button className="primary-button" type="submit">
+              Aplicar
+            </button>
+          </form>
+
+          <CrudActionButtons
+            actions={[
+              { label: 'Crear bus', disabled: !canManage, variant: 'primary-button', onClick: handleCreateBus },
+            ]}
           />
-          <select value={status} onChange={(event) => setStatus(event.target.value as OperationalStatus | '')}>
-            <option value="">Todos los estados</option>
-            {OPERATIONAL_STATUSES.map((item) => (
-              <option key={item} value={item}>
-                {formatEnumLabel(item)}
-              </option>
-            ))}
-          </select>
-          <select value={routeId} onChange={(event) => setRouteId(event.target.value)}>
-            <option value="">Todas las rutas</option>
-            {(routes?.content ?? []).map((route) => (
-              <option key={route.id} value={route.id}>
-                {route.name}
-              </option>
-            ))}
-          </select>
-          <button className="primary-button" type="submit">
-            Aplicar
-          </button>
-        </form>
+        </div>
       }
     >
       {error ? <ErrorBanner message={error} /> : null}
@@ -862,13 +1104,19 @@ function BusesPage({ token, canManage }: BusesPageProps) {
                     <span className={`badge ${getStatusTone(bus.status)}`}>{formatEnumLabel(bus.status)}</span>
                   </td>
                   {canManage ? (
-                    <td>
+                    <td className="actions-cell">
                       <EnumAction
                         key={`bus-status-${bus.id}-${bus.status}`}
                         value={bus.status}
                         options={OPERATIONAL_STATUSES}
                         actionLabel="Actualizar"
                         onSubmit={(nextStatus) => handleStatusUpdate(bus, nextStatus)}
+                      />
+                      <CrudActionButtons
+                        actions={[
+                          { label: 'Editar', disabled: !canManage, onClick: () => void handleEditBus(bus) },
+                          { label: 'Eliminar', disabled: !canManage, onClick: () => void handleDeleteBus(bus) },
+                        ]}
                       />
                     </td>
                   ) : null}
@@ -894,9 +1142,10 @@ function BusesPage({ token, canManage }: BusesPageProps) {
   )
 }
 
-function StopsPage({ token }: StopsPageProps) {
+function StopsPage({ token, canManage }: StopsPageProps) {
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState<OperationalStatus | ''>('')
+  const [selectedStopId, setSelectedStopId] = useState('')
   const [query, setQuery] = useState({
     search: '',
     status: '' as OperationalStatus | '',
@@ -927,6 +1176,15 @@ function StopsPage({ token }: StopsPageProps) {
     return () => controller.abort()
   }, [query, token])
 
+  useEffect(() => {
+    if (!data?.content.length) {
+      setSelectedStopId('')
+      return
+    }
+
+    setSelectedStopId((current) => (data.content.some((stop) => stop.id === current) ? current : data.content[0].id))
+  }, [data])
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setQuery((current) => ({
@@ -937,28 +1195,160 @@ function StopsPage({ token }: StopsPageProps) {
     }))
   }
 
+  async function handleCreateStop() {
+    const code = askText('Código de la parada')
+    if (!code) return
+    const name = askText('Nombre de la parada')
+    if (!name) return
+    const address = askText('Dirección')
+    if (!address) return
+    const latitude = askNumber('Latitud', 14.97)
+    if (latitude === null) return
+    const longitude = askNumber('Longitud', -89.53)
+    if (longitude === null) return
+    const nextStatus = askOperationalStatus('ACTIVE')
+    if (!nextStatus) return
+
+    await api.createStop(token, { code, name, address, latitude, longitude, status: nextStatus })
+    setQuery((current) => ({ ...current }))
+  }
+
+  async function handleEditStop(stop: Stop) {
+    const code = askText('Código de la parada', stop.code)
+    if (!code) return
+    const name = askText('Nombre de la parada', stop.name)
+    if (!name) return
+    const address = askText('Dirección', stop.address)
+    if (!address) return
+    const position = getCoordinatePosition(stop)
+    const latitude = askNumber('Latitud', position?.[0] ?? 14.97)
+    if (latitude === null) return
+    const longitude = askNumber('Longitud', position?.[1] ?? -89.53)
+    if (longitude === null) return
+    const nextStatus = askOperationalStatus(stop.status)
+    if (!nextStatus) return
+
+    const updated = await api.updateStop(token, stop.id, { code, name, address, latitude, longitude, status: nextStatus })
+    setData((current) =>
+      current
+        ? {
+            ...current,
+            content: current.content.map((item) => (item.id === stop.id ? updated : item)),
+          }
+        : current,
+    )
+  }
+
+  async function handleDeleteStop(stop: Stop) {
+    if (!window.confirm(`Eliminar la parada ${stop.code}?`)) {
+      return
+    }
+
+    const updated = await api.deleteStop(token, stop.id)
+    setData((current) =>
+      current
+        ? {
+            ...current,
+            content: current.content.map((item) => (item.id === stop.id ? updated : item)),
+          }
+        : current,
+    )
+  }
+
+  const stopMarkers = (data?.content ?? []).map(createStopMarker).filter(isMapMarker)
+  const selectedStop = data?.content.find((stop) => stop.id === selectedStopId) ?? null
+  const highlightedStop = selectedStop ? createStopMarker(selectedStop) : null
+  const activeStops = (data?.content ?? []).filter((stop) => stop.status === 'ACTIVE').length
+
   return (
     <PageLayout
       title="Paradas"
-      copy="Catálogo de paradas consultado vía `/stops` con búsqueda simple y estado operacional."
+      copy="Catálogo de paradas con ubicación, estado y contexto geográfico."
       toolbar={
-        <form className="filters-grid compact" onSubmit={handleSubmit}>
-          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar parada" />
-          <select value={status} onChange={(event) => setStatus(event.target.value as OperationalStatus | '')}>
-            <option value="">Todos los estados</option>
-            {OPERATIONAL_STATUSES.map((item) => (
-              <option key={item} value={item}>
-                {formatEnumLabel(item)}
-              </option>
-            ))}
-          </select>
-          <button className="primary-button" type="submit">
-            Filtrar
-          </button>
-        </form>
+        <div className="page-toolbar">
+          <form className="filters-grid compact" onSubmit={handleSubmit}>
+            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar parada" />
+            <select value={status} onChange={(event) => setStatus(event.target.value as OperationalStatus | '')}>
+              <option value="">Todos los estados</option>
+              {OPERATIONAL_STATUSES.map((item) => (
+                <option key={item} value={item}>
+                  {formatEnumLabel(item)}
+                </option>
+              ))}
+            </select>
+            <button className="primary-button" type="submit">
+              Filtrar
+            </button>
+          </form>
+
+          <CrudActionButtons
+            actions={[
+              { label: 'Crear parada', disabled: !canManage, variant: 'primary-button', onClick: handleCreateStop },
+            ]}
+          />
+        </div>
       }
     >
       {error ? <ErrorBanner message={error} /> : null}
+
+      <section className="content-grid two-column map-support-grid">
+        <article className="panel panel-map">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Mapa</p>
+              <h3>Cobertura de paradas</h3>
+            </div>
+            <span className="soft-pill">{stopMarkers.length} ubicaciones</span>
+          </div>
+
+          <OperationsMapView
+            ariaLabel="Mapa de paradas registradas"
+            focusMarkers={highlightedStop ? [highlightedStop] : []}
+            stopMarkers={stopMarkers}
+          />
+        </article>
+
+        <article className="panel">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Contexto</p>
+              <h3>{selectedStop?.name ?? 'Selecciona una parada'}</h3>
+            </div>
+          </div>
+
+          <dl className="summary-list">
+            <div>
+              <dt>Total en página</dt>
+              <dd>{data?.content.length ?? 0}</dd>
+            </div>
+            <div>
+              <dt>Paradas activas</dt>
+              <dd>{activeStops}</dd>
+            </div>
+            <div>
+              <dt>Selección actual</dt>
+              <dd>{selectedStop?.code ?? 'Sin selección'}</dd>
+            </div>
+          </dl>
+
+          <div className="detail-card">
+            <p className="eyebrow">Ficha rápida</p>
+            {selectedStop ? (
+              <div className="stack-list">
+                <div className="mini-row">
+                  <div>
+                    <strong>{selectedStop.address}</strong>
+                    <span>{getPositionLabel(selectedStop)}</span>
+                  </div>
+                  <span className={`badge ${getStatusTone(selectedStop.status)}`}>{formatEnumLabel(selectedStop.status)}</span>
+                </div>
+              </div>
+            ) : (
+              <EmptyState title="Sin parada seleccionada" copy="Selecciona una fila para inspeccionar su ubicación." />
+            )}
+          </div>
+        </article>
+      </section>
 
       <article className="panel">
         <div className="panel-head">
@@ -978,17 +1368,30 @@ function StopsPage({ token }: StopsPageProps) {
                 <th>Dirección</th>
                 <th>Coordenadas</th>
                 <th>Estado</th>
+                <th>Acciones</th>
               </tr>
             </thead>
             <tbody>
               {data?.content.map((stop) => (
-                <tr key={stop.id}>
+                <tr
+                  key={stop.id}
+                  className={selectedStopId === stop.id ? 'stop-row is-selected' : 'stop-row'}
+                  onClick={() => setSelectedStopId(stop.id)}
+                >
                   <td>{stop.code}</td>
                   <td>{stop.name}</td>
                   <td>{stop.address}</td>
                   <td>{getPositionLabel(stop)}</td>
                   <td>
                     <span className={`badge ${getStatusTone(stop.status)}`}>{formatEnumLabel(stop.status)}</span>
+                  </td>
+                  <td className="actions-cell">
+                    <CrudActionButtons
+                      actions={[
+                        { label: 'Editar', disabled: !canManage, onClick: () => void handleEditStop(stop) },
+                        { label: 'Eliminar', disabled: !canManage, onClick: () => void handleDeleteStop(stop) },
+                      ]}
+                    />
                   </td>
                 </tr>
               )) ?? null}
@@ -1102,25 +1505,108 @@ function RoutesPage({ token, canManage }: RoutesPageProps) {
     setDetail(updated)
   }
 
+  async function handleCreateRoute() {
+    const name = askText('Nombre de la ruta')
+    if (!name) return
+    const stopIdsValue = askText('IDs de paradas separados por coma')
+    if (!stopIdsValue) return
+    const stopIds = stopIdsValue.split(',').map((item) => item.trim()).filter(Boolean)
+    if (stopIds.length < 2) return
+    const nextStatus = askOperationalStatus('ACTIVE')
+    if (!nextStatus) return
+
+    await api.createRoute(token, { name, stopIds, status: nextStatus })
+    setQuery((current) => ({ ...current }))
+  }
+
+  async function handleEditRoute() {
+    if (!detail) return
+    const name = askText('Nombre de la ruta', detail.name)
+    if (!name) return
+    const stopIdsValue = askText('IDs de paradas separados por coma', detail.stops.map((stop) => stop.id).join(', '))
+    if (!stopIdsValue) return
+    const stopIds = stopIdsValue.split(',').map((item) => item.trim()).filter(Boolean)
+    if (stopIds.length < 2) return
+    const nextStatus = askOperationalStatus(detail.status)
+    if (!nextStatus) return
+
+    const updated = await api.updateRoute(token, detail.id, { name, stopIds, status: nextStatus })
+    setDetail(updated)
+    setQuery((current) => ({ ...current }))
+  }
+
+  async function handleDeleteRoute() {
+    if (!detail || !window.confirm(`Eliminar la ruta ${detail.name}?`)) return
+    const updated = await api.deleteRoute(token, detail.id)
+    setDetail(updated)
+    setData((current) =>
+      current
+        ? {
+            ...current,
+            content: current.content.map((item) =>
+              item.id === updated.id
+                ? {
+                    ...item,
+                    name: updated.name,
+                    origin: updated.origin,
+                    destination: updated.destination,
+                    status: updated.status,
+                  }
+                : item,
+            ),
+          }
+        : current,
+    )
+  }
+
+  const routeStopMarkers = (detail?.stops ?? []).map(createStopMarker).filter(isMapMarker)
+  const routeFocusMarkers =
+    detail?.stops.length && routeStopMarkers.length
+      ? routeStopMarkers.filter((marker) => {
+          const firstStop = detail.stops[0]
+          const lastStop = detail.stops[detail.stops.length - 1]
+          return marker.id === firstStop.id || marker.id === lastStop.id
+        })
+      : []
+  const routePaths =
+    detail?.geometry?.coordinates.length
+      ? [
+          {
+            id: detail.id,
+            name: detail.name,
+            color: '#0f766e',
+            points: detail.geometry.coordinates.filter(isCoordinatePair),
+          },
+        ]
+      : []
+
   return (
     <PageLayout
       title="Rutas"
-      copy="Vista dual: listado de rutas por `/routes` y detalle expandido por `/routes/{id}`."
+      copy="Listado de rutas, detalle operativo y visualización del trazado."
       toolbar={
-        <form className="filters-grid compact" onSubmit={handleSubmit}>
-          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar ruta" />
-          <select value={status} onChange={(event) => setStatus(event.target.value as OperationalStatus | '')}>
-            <option value="">Todos los estados</option>
-            {OPERATIONAL_STATUSES.map((item) => (
-              <option key={item} value={item}>
-                {formatEnumLabel(item)}
-              </option>
-            ))}
-          </select>
-          <button className="primary-button" type="submit">
-            Filtrar
-          </button>
-        </form>
+        <div className="page-toolbar">
+          <form className="filters-grid compact" onSubmit={handleSubmit}>
+            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar ruta" />
+            <select value={status} onChange={(event) => setStatus(event.target.value as OperationalStatus | '')}>
+              <option value="">Todos los estados</option>
+              {OPERATIONAL_STATUSES.map((item) => (
+                <option key={item} value={item}>
+                  {formatEnumLabel(item)}
+                </option>
+              ))}
+            </select>
+            <button className="primary-button" type="submit">
+              Filtrar
+            </button>
+          </form>
+
+          <CrudActionButtons
+            actions={[
+              { label: 'Crear ruta', disabled: !canManage, variant: 'primary-button', onClick: handleCreateRoute },
+            ]}
+          />
+        </div>
       }
     >
       {error ? <ErrorBanner message={error} /> : null}
@@ -1173,37 +1659,67 @@ function RoutesPage({ token, canManage }: RoutesPageProps) {
               <p className="eyebrow">Detalle</p>
               <h3>{detail?.name ?? 'Selecciona una ruta'}</h3>
             </div>
-            {canManage && detail ? (
-              <button className="primary-button" type="button" onClick={handleRecalculateGeometry}>
-                Recalcular geometría
-              </button>
-            ) : null}
+            <div className="panel-actions">
+              {canManage && detail ? (
+                <button className="primary-button" type="button" onClick={handleRecalculateGeometry}>
+                  Recalcular geometría
+                </button>
+              ) : null}
+              <CrudActionButtons
+                actions={[
+                  { label: 'Editar ruta', disabled: !canManage || !detail, onClick: handleEditRoute },
+                  { label: 'Eliminar ruta', disabled: !canManage || !detail, onClick: handleDeleteRoute },
+                ]}
+              />
+            </div>
           </div>
 
           {detailError ? <ErrorBanner message={detailError} /> : null}
 
-          {detailLoading ? <EmptyState title="Cargando ruta" copy="Consultando `/routes/{id}`..." /> : null}
+          {detailLoading ? <EmptyState title="Cargando ruta" copy="Preparando el detalle seleccionado." /> : null}
 
           {!detailLoading && detail ? (
             <div className="detail-stack">
-              <dl className="summary-list">
-                <div>
-                  <dt>Origen</dt>
-                  <dd>{detail.origin}</dd>
+              <section className="content-grid two-column route-map-layout">
+                <div className="detail-card">
+                  <div className="panel-head">
+                    <div>
+                      <p className="eyebrow">Mapa</p>
+                      <h3>Trazo de la ruta</h3>
+                    </div>
+                    <span className="soft-pill">{routePaths[0]?.points.length ?? 0} puntos</span>
+                  </div>
+
+                  <OperationsMapView
+                    ariaLabel={`Mapa de la ruta ${detail.name}`}
+                    focusMarkers={routeFocusMarkers}
+                    stopMarkers={routeStopMarkers}
+                    routePaths={routePaths}
+                  />
                 </div>
-                <div>
-                  <dt>Destino</dt>
-                  <dd>{detail.destination}</dd>
+
+                <div className="detail-card">
+                  <p className="eyebrow">Resumen</p>
+                  <dl className="summary-list">
+                    <div>
+                      <dt>Origen</dt>
+                      <dd>{detail.origin}</dd>
+                    </div>
+                    <div>
+                      <dt>Destino</dt>
+                      <dd>{detail.destination}</dd>
+                    </div>
+                    <div>
+                      <dt>Paradas</dt>
+                      <dd>{detail.stops.length}</dd>
+                    </div>
+                    <div>
+                      <dt>Geometría</dt>
+                      <dd>{detail.geometry?.coordinates.length ?? 0} puntos</dd>
+                    </div>
+                  </dl>
                 </div>
-                <div>
-                  <dt>Paradas</dt>
-                  <dd>{detail.stops.length}</dd>
-                </div>
-                <div>
-                  <dt>Geometría</dt>
-                  <dd>{detail.geometry?.coordinates.length ?? 0} puntos</dd>
-                </div>
-              </dl>
+              </section>
 
               <div className="detail-card">
                 <p className="eyebrow">Secuencia</p>
@@ -1230,7 +1746,7 @@ function RoutesPage({ token, canManage }: RoutesPageProps) {
   )
 }
 
-function FaresPage({ token }: FaresPageProps) {
+function FaresPage({ token, canManage }: FaresPageProps) {
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState<OperationalStatus | ''>('')
   const [query, setQuery] = useState({
@@ -1273,25 +1789,85 @@ function FaresPage({ token }: FaresPageProps) {
     }))
   }
 
+  async function handleCreateFare() {
+    const name = askText('Nombre de la tarifa')
+    if (!name) return
+    const amount = askNumber('Monto', 4)
+    if (amount === null) return
+    const validFrom = askText('Vigencia desde (YYYY-MM-DD)')
+    if (!validFrom) return
+    const validTo = askText('Vigencia hasta (YYYY-MM-DD)')
+    if (!validTo) return
+    const nextStatus = askOperationalStatus('ACTIVE')
+    if (!nextStatus) return
+
+    await api.createFare(token, { name, amount, validFrom, validTo, status: nextStatus })
+    setQuery((current) => ({ ...current }))
+  }
+
+  async function handleEditFare(fare: Fare) {
+    const name = askText('Nombre de la tarifa', fare.name)
+    if (!name) return
+    const amount = askNumber('Monto', fare.amount)
+    if (amount === null) return
+    const validFrom = askText('Vigencia desde (YYYY-MM-DD)', fare.validFrom.slice(0, 10))
+    if (!validFrom) return
+    const validTo = askText('Vigencia hasta (YYYY-MM-DD)', fare.validTo.slice(0, 10))
+    if (!validTo) return
+    const nextStatus = askOperationalStatus(fare.status)
+    if (!nextStatus) return
+
+    const updated = await api.updateFare(token, fare.id, { name, amount, validFrom, validTo, status: nextStatus })
+    setData((current) =>
+      current
+        ? {
+            ...current,
+            content: current.content.map((item) => (item.id === fare.id ? updated : item)),
+          }
+        : current,
+    )
+  }
+
+  async function handleDeleteFare(fare: Fare) {
+    if (!window.confirm(`Eliminar la tarifa ${fare.name}?`)) return
+    const updated = await api.deleteFare(token, fare.id)
+    setData((current) =>
+      current
+        ? {
+            ...current,
+            content: current.content.map((item) => (item.id === fare.id ? updated : item)),
+          }
+        : current,
+    )
+  }
+
   return (
     <PageLayout
       title="Tarifas"
-      copy="Consulta de tarifas activas e históricas por `/fares`, con vigencias y estado."
+      copy="Administración de vigencias, montos y estado de las tarifas."
       toolbar={
-        <form className="filters-grid compact" onSubmit={handleSubmit}>
-          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar tarifa" />
-          <select value={status} onChange={(event) => setStatus(event.target.value as OperationalStatus | '')}>
-            <option value="">Todos los estados</option>
-            {OPERATIONAL_STATUSES.map((item) => (
-              <option key={item} value={item}>
-                {formatEnumLabel(item)}
-              </option>
-            ))}
-          </select>
-          <button className="primary-button" type="submit">
-            Filtrar
-          </button>
-        </form>
+        <div className="page-toolbar">
+          <form className="filters-grid compact" onSubmit={handleSubmit}>
+            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar tarifa" />
+            <select value={status} onChange={(event) => setStatus(event.target.value as OperationalStatus | '')}>
+              <option value="">Todos los estados</option>
+              {OPERATIONAL_STATUSES.map((item) => (
+                <option key={item} value={item}>
+                  {formatEnumLabel(item)}
+                </option>
+              ))}
+            </select>
+            <button className="primary-button" type="submit">
+              Filtrar
+            </button>
+          </form>
+
+          <CrudActionButtons
+            actions={[
+              { label: 'Crear tarifa', disabled: !canManage, variant: 'primary-button', onClick: handleCreateFare },
+            ]}
+          />
+        </div>
       }
     >
       {error ? <ErrorBanner message={error} /> : null}
@@ -1313,6 +1889,7 @@ function FaresPage({ token }: FaresPageProps) {
                 <th>Monto</th>
                 <th>Vigencia</th>
                 <th>Estado</th>
+                <th>Acciones</th>
               </tr>
             </thead>
             <tbody>
@@ -1326,13 +1903,21 @@ function FaresPage({ token }: FaresPageProps) {
                   <td>
                     <span className={`badge ${getStatusTone(fare.status)}`}>{formatEnumLabel(fare.status)}</span>
                   </td>
+                  <td className="actions-cell">
+                    <CrudActionButtons
+                      actions={[
+                        { label: 'Editar', disabled: !canManage, onClick: () => void handleEditFare(fare) },
+                        { label: 'Eliminar', disabled: !canManage, onClick: () => void handleDeleteFare(fare) },
+                      ]}
+                    />
+                  </td>
                 </tr>
               )) ?? null}
             </tbody>
           </table>
         </div>
 
-        {!data?.content.length ? <EmptyState title="Sin tarifas" copy="El backend no devolvió registros para esta vista." /> : null}
+        {!data?.content.length ? <EmptyState title="Sin tarifas" copy="No hay tarifas disponibles para los filtros actuales." /> : null}
 
         <PaginationBar
           page={data?.page ?? 0}
@@ -1420,33 +2005,91 @@ function UsersPage({ token, currentUserId, canManage }: UsersPageProps) {
     await api.resetUserPassword(token, user.id, password)
   }
 
+  async function handleCreateUser() {
+    const name = askText('Nombre del usuario')
+    if (!name) return
+    const email = askText('Correo del usuario')
+    if (!email) return
+    const roleValue = askUserRole('OPERATOR')
+    if (!roleValue) return
+    const statusValue = askUserStatus('ACTIVE')
+    if (!statusValue) return
+    const password = askText('Contraseña temporal')
+    if (!password) return
+
+    await api.createUser(token, { name, email, role: roleValue, status: statusValue, password })
+    setQuery((current) => ({ ...current }))
+  }
+
+  async function handleEditUser(user: StaffUser) {
+    const name = askText('Nombre del usuario', user.name)
+    if (!name) return
+    const email = askText('Correo del usuario', user.email)
+    if (!email) return
+    const roleValue = askUserRole(user.role)
+    if (!roleValue) return
+    const statusValue = askUserStatus(user.status)
+    if (!statusValue) return
+
+    const updated = await api.updateUser(token, user.id, { name, email, role: roleValue, status: statusValue })
+    setData((current) =>
+      current
+        ? {
+            ...current,
+            content: current.content.map((item) => (item.id === user.id ? updated : item)),
+          }
+        : current,
+    )
+  }
+
+  async function handleDeleteUser(user: StaffUser) {
+    if (!window.confirm(`Eliminar al usuario ${user.name}?`)) return
+    const updated = await api.deleteUser(token, user.id)
+    setData((current) =>
+      current
+        ? {
+            ...current,
+            content: current.content.map((item) => (item.id === user.id ? updated : item)),
+          }
+        : current,
+    )
+  }
+
   return (
     <PageLayout
       title="Usuarios"
       copy="Búsqueda por nombre, correo, rol y estado con acciones rápidas de soporte administrativo."
       toolbar={
-        <form className="filters-grid compact" onSubmit={handleSubmit}>
-          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar usuario" />
-          <select value={role} onChange={(event) => setRole(event.target.value as UserRole | '')}>
-            <option value="">Todos los roles</option>
-            {USER_ROLES.map((item) => (
-              <option key={item} value={item}>
-                {formatEnumLabel(item)}
-              </option>
-            ))}
-          </select>
-          <select value={status} onChange={(event) => setStatus(event.target.value as UserStatus | '')}>
-            <option value="">Todos los estados</option>
-            {USER_STATUSES.map((item) => (
-              <option key={item} value={item}>
-                {formatEnumLabel(item)}
-              </option>
-            ))}
-          </select>
-          <button className="primary-button" type="submit">
-            Filtrar
-          </button>
-        </form>
+        <div className="page-toolbar">
+          <form className="filters-grid compact" onSubmit={handleSubmit}>
+            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar usuario" />
+            <select value={role} onChange={(event) => setRole(event.target.value as UserRole | '')}>
+              <option value="">Todos los roles</option>
+              {USER_ROLES.map((item) => (
+                <option key={item} value={item}>
+                  {formatEnumLabel(item)}
+                </option>
+              ))}
+            </select>
+            <select value={status} onChange={(event) => setStatus(event.target.value as UserStatus | '')}>
+              <option value="">Todos los estados</option>
+              {USER_STATUSES.map((item) => (
+                <option key={item} value={item}>
+                  {formatEnumLabel(item)}
+                </option>
+              ))}
+            </select>
+            <button className="primary-button" type="submit">
+              Filtrar
+            </button>
+          </form>
+
+          <CrudActionButtons
+            actions={[
+              { label: 'Crear usuario', disabled: !canManage, variant: 'primary-button', onClick: handleCreateUser },
+            ]}
+          />
+        </div>
       }
     >
       {error ? <ErrorBanner message={error} /> : null}
@@ -1512,6 +2155,12 @@ function UsersPage({ token, currentUserId, canManage }: UsersPageProps) {
                         <PasswordResetAction
                           disabled={rowDisabled}
                           onSubmit={(password) => handlePasswordReset(user, password)}
+                        />
+                        <CrudActionButtons
+                          actions={[
+                            { label: 'Editar', disabled: rowDisabled, onClick: () => void handleEditUser(user) },
+                            { label: 'Eliminar', disabled: rowDisabled, onClick: () => void handleDeleteUser(user) },
+                          ]}
                         />
                       </td>
                     ) : null}
@@ -1628,36 +2277,115 @@ function PaymentsPage({ token, canManage }: PaymentsPageProps) {
     )
   }
 
+  async function handleEditPayment(payment: Payment) {
+    if (payment.method === 'WALLET') {
+      window.alert('Los pagos de billetera se corrigen con reversa u otros controles operativos.')
+      return
+    }
+
+    const nextUserId = askText('ID del usuario', payment.userId)
+    if (!nextUserId) return
+    const nextBusId = askText('ID del bus', payment.busId)
+    if (!nextBusId) return
+    const nextAmount = askNumber('Monto', payment.amount)
+    if (nextAmount === null) return
+    const nextMethod = askPaymentMethod(payment.method)
+    if (!nextMethod) return
+    if (nextMethod === 'WALLET') {
+      window.alert('La edición administrativa no permite pagos con método WALLET.')
+      return
+    }
+    const nextStatus = askEditablePaymentStatus(payment.status)
+    if (!nextStatus) return
+    const nextDate = askText('Fecha y hora (ISO 8601)', payment.date)
+    if (!nextDate) return
+    const nextReference = askOptionalText('Referencia externa', payment.externalReference ?? '')
+    if (nextReference === null) return
+
+    const updated = await api.updatePayment(token, payment.id, {
+      userId: nextUserId,
+      busId: nextBusId,
+      amount: nextAmount,
+      method: nextMethod,
+      date: nextDate,
+      externalReference: nextReference || undefined,
+      status: nextStatus,
+    })
+
+    setData((current) =>
+      current
+        ? {
+            ...current,
+            content: current.content.map((item) => (item.id === payment.id ? updated : item)),
+          }
+        : current,
+    )
+  }
+
+  async function handleDeletePayment(payment: Payment) {
+    if (!window.confirm(`Eliminar el pago ${payment.id}?`)) return
+    if (payment.method === 'WALLET') {
+      window.alert('Los pagos de billetera no se eliminan desde este módulo.')
+      return
+    }
+
+    const result = await api.deletePayment(token, payment.id)
+    if (!result.success) {
+      return
+    }
+
+    setData((current) =>
+      current
+        ? {
+            ...current,
+            content: current.content.filter((item) => item.id !== payment.id),
+            totalElements: Math.max(0, current.totalElements - 1),
+          }
+        : current,
+    )
+  }
+
   return (
     <PageLayout
       title="Pagos"
-      copy="Cobros manuales, filtros por fecha y reversa directa de pagos completados."
+      copy="Gestión de cobros, filtros de consulta y acciones administrativas sobre transacciones."
       toolbar={
-        <form className="filters-grid payments" onSubmit={handleFilterSubmit}>
-          <input value={userId} onChange={(event) => setUserId(event.target.value)} placeholder="userId" />
-          <input value={busId} onChange={(event) => setBusId(event.target.value)} placeholder="busId" />
-          <select value={status} onChange={(event) => setStatus(event.target.value as PaymentStatus | '')}>
-            <option value="">Todos los estados</option>
-            {PAYMENT_STATUSES.map((item) => (
-              <option key={item} value={item}>
-                {formatEnumLabel(item)}
-              </option>
-            ))}
-          </select>
-          <select value={method} onChange={(event) => setMethod(event.target.value as PaymentMethod | '')}>
-            <option value="">Todos los métodos</option>
-            {PAYMENT_METHODS.map((item) => (
-              <option key={item} value={item}>
-                {formatEnumLabel(item)}
-              </option>
-            ))}
-          </select>
-          <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} />
-          <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
-          <button className="primary-button" type="submit">
-            Filtrar
-          </button>
-        </form>
+        <div className="page-toolbar">
+          <form className="filters-grid payments" onSubmit={handleFilterSubmit}>
+            <input value={userId} onChange={(event) => setUserId(event.target.value)} placeholder="ID de usuario" />
+            <input value={busId} onChange={(event) => setBusId(event.target.value)} placeholder="ID de bus" />
+            <select value={status} onChange={(event) => setStatus(event.target.value as PaymentStatus | '')}>
+              <option value="">Todos los estados</option>
+              {PAYMENT_STATUSES.map((item) => (
+                <option key={item} value={item}>
+                  {formatEnumLabel(item)}
+                </option>
+              ))}
+            </select>
+            <select value={method} onChange={(event) => setMethod(event.target.value as PaymentMethod | '')}>
+              <option value="">Todos los métodos</option>
+              {PAYMENT_METHODS.map((item) => (
+                <option key={item} value={item}>
+                  {formatEnumLabel(item)}
+                </option>
+              ))}
+            </select>
+            <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} />
+            <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
+            <button className="primary-button" type="submit">
+              Filtrar
+            </button>
+          </form>
+
+          <CrudActionButtons
+            actions={[
+              { label: 'Registrar pago', disabled: !canManage, variant: 'primary-button', onClick: () => {
+                const form = document.querySelector('.create-payment button[type="submit"]') as HTMLButtonElement | null
+                form?.focus()
+              } },
+            ]}
+          />
+        </div>
       }
     >
       {error ? <ErrorBanner message={error} /> : null}
@@ -1675,10 +2403,10 @@ function PaymentsPage({ token, canManage }: PaymentsPageProps) {
             <input
               value={createUserId}
               onChange={(event) => setCreateUserId(event.target.value)}
-              placeholder="userId destino"
+              placeholder="ID de usuario"
               required
             />
-            <input value={createBusId} onChange={(event) => setCreateBusId(event.target.value)} placeholder="busId" required />
+            <input value={createBusId} onChange={(event) => setCreateBusId(event.target.value)} placeholder="ID de bus" required />
             <input
               type="number"
               min="0.01"
@@ -1732,39 +2460,50 @@ function PaymentsPage({ token, canManage }: PaymentsPageProps) {
               </tr>
             </thead>
             <tbody>
-              {data?.content.map((payment) => (
-                <tr key={payment.id}>
-                  <td>{formatDateTime(payment.date)}</td>
-                  <td>
-                    <strong>{payment.user}</strong>
-                    <span className="cell-subtitle">{payment.userId}</span>
-                  </td>
-                  <td>
-                    <strong>{payment.bus}</strong>
-                    <span className="cell-subtitle">{payment.busPlate}</span>
-                  </td>
-                  <td>
-                    {payment.routeName}
-                    <span className="cell-subtitle">
-                      {payment.routeOrigin} {'->'} {payment.routeDestination}
-                    </span>
-                  </td>
-                  <td>{formatEnumLabel(payment.method)}</td>
-                  <td>{formatCurrency(payment.amount)}</td>
-                  <td>
-                    <span className={`badge ${getStatusTone(payment.status)}`}>{formatEnumLabel(payment.status)}</span>
-                  </td>
-                  {canManage ? (
+              {data?.content.map((payment) => {
+                const paymentLocked = payment.method === 'WALLET'
+
+                return (
+                  <tr key={payment.id}>
+                    <td>{formatDateTime(payment.date)}</td>
                     <td>
-                      {payment.status === 'COMPLETED' ? (
-                        <ReversePaymentAction onSubmit={(reason) => handleReversePayment(payment, reason)} />
-                      ) : (
-                        <span className="muted-copy">No disponible</span>
-                      )}
+                      <strong>{payment.user}</strong>
+                      <span className="cell-subtitle">{payment.userId}</span>
                     </td>
-                  ) : null}
-                </tr>
-              )) ?? null}
+                    <td>
+                      <strong>{payment.bus}</strong>
+                      <span className="cell-subtitle">{payment.busPlate}</span>
+                    </td>
+                    <td>
+                      {payment.routeName}
+                      <span className="cell-subtitle">
+                        {payment.routeOrigin} {'->'} {payment.routeDestination}
+                      </span>
+                    </td>
+                    <td>{formatEnumLabel(payment.method)}</td>
+                    <td>{formatCurrency(payment.amount)}</td>
+                    <td>
+                      <span className={`badge ${getStatusTone(payment.status)}`}>{formatEnumLabel(payment.status)}</span>
+                    </td>
+                    {canManage ? (
+                      <td className="actions-cell">
+                        {payment.status === 'COMPLETED' ? (
+                          <ReversePaymentAction onSubmit={(reason) => handleReversePayment(payment, reason)} />
+                        ) : (
+                          <span className="muted-copy">No disponible</span>
+                        )}
+                        <CrudActionButtons
+                          actions={[
+                            { label: 'Editar', disabled: !canManage || paymentLocked, onClick: () => void handleEditPayment(payment) },
+                            { label: 'Eliminar', disabled: !canManage || paymentLocked, onClick: () => void handleDeletePayment(payment) },
+                          ]}
+                          note={paymentLocked ? 'Los pagos de billetera se administran por reversa.' : undefined}
+                        />
+                      </td>
+                    ) : null}
+                  </tr>
+                )
+              }) ?? null}
             </tbody>
           </table>
         </div>
@@ -1843,7 +2582,7 @@ function ReportsPage({ token }: ReportsPageProps) {
   return (
     <PageLayout
       title="Reportes"
-      copy="Resumen agregado por `/reports/summary`, ranking por ruta y bus, y últimas transacciones del reporte."
+      copy="Indicadores consolidados, rankings operativos y actividad reciente."
       toolbar={
         <form className="filters-grid compact" onSubmit={handleSubmit}>
           <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} />
@@ -1857,11 +2596,11 @@ function ReportsPage({ token }: ReportsPageProps) {
       {error ? <ErrorBanner message={error} /> : null}
 
       <section className="stats-grid">
-        <StatCard label="Buses activos" value={String(summary?.activeBuses ?? 0)} caption="Resumen agregado" />
-        <StatCard label="Rutas registradas" value={String(summary?.registeredRoutes ?? 0)} caption="Resumen agregado" />
-        <StatCard label="Paradas registradas" value={String(summary?.registeredStops ?? 0)} caption="Resumen agregado" />
-        <StatCard label="Pagos" value={String(summary?.payments ?? 0)} caption="Resumen agregado" />
-        <StatCard label="Ingresos" value={formatCurrency(summary?.revenue ?? 0)} caption="Resumen agregado" />
+        <StatCard label="Buses activos" value={String(summary?.activeBuses ?? 0)} caption="Estado general" />
+        <StatCard label="Rutas registradas" value={String(summary?.registeredRoutes ?? 0)} caption="Cobertura total" />
+        <StatCard label="Paradas registradas" value={String(summary?.registeredStops ?? 0)} caption="Inventario" />
+        <StatCard label="Pagos" value={String(summary?.payments ?? 0)} caption="Movimientos" />
+        <StatCard label="Ingresos" value={formatCurrency(summary?.revenue ?? 0)} caption="Recaudación" />
       </section>
 
       <section className="content-grid three-column">
@@ -1949,11 +2688,17 @@ function ReportsPage({ token }: ReportsPageProps) {
 }
 
 function OperationsMapView({
-  dashboardMarkers,
-  operationsMap,
+  ariaLabel,
+  focusMarkers = [],
+  stopMarkers = [],
+  busMarkers = [],
+  routePaths = [],
 }: {
-  dashboardMarkers: MapMarker[]
-  operationsMap: OperationsMapResponse | null
+  ariaLabel: string
+  focusMarkers?: MapMarker[]
+  stopMarkers?: MapMarker[]
+  busMarkers?: MapMarker[]
+  routePaths?: RoutePath[]
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<L.Map | null>(null)
@@ -2000,7 +2745,7 @@ function OperationsMapView({
 
     const bounds = L.latLngBounds([])
 
-    for (const route of operationsMap?.routePaths ?? []) {
+    for (const route of routePaths) {
       const points = route.points.filter(isCoordinatePair)
       if (!points.length) {
         continue
@@ -2017,7 +2762,7 @@ function OperationsMapView({
       points.forEach((point) => bounds.extend(point))
     }
 
-    for (const marker of dashboardMarkers) {
+    for (const marker of focusMarkers) {
       if (!isCoordinatePair(marker.position)) {
         continue
       }
@@ -2035,7 +2780,7 @@ function OperationsMapView({
       bounds.extend(marker.position)
     }
 
-    for (const marker of operationsMap?.stopMarkers ?? []) {
+    for (const marker of stopMarkers) {
       if (!isCoordinatePair(marker.position)) {
         continue
       }
@@ -2053,7 +2798,7 @@ function OperationsMapView({
       bounds.extend(marker.position)
     }
 
-    for (const marker of operationsMap?.busMarkers ?? []) {
+    for (const marker of busMarkers) {
       if (!isCoordinatePair(marker.position)) {
         continue
       }
@@ -2076,9 +2821,9 @@ function OperationsMapView({
     } else {
       map.setView(DEFAULT_CENTER, 12)
     }
-  }, [dashboardMarkers, operationsMap])
+  }, [busMarkers, focusMarkers, routePaths, stopMarkers])
 
-  return <div className="leaflet-host" ref={containerRef} aria-label="Mapa operativo de buses y rutas" />
+  return <div className="leaflet-host" ref={containerRef} aria-label={ariaLabel} />
 }
 
 function StatCard({ label, value, caption }: { label: string; value: string; caption: string }) {
