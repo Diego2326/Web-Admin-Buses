@@ -1,7 +1,7 @@
 import axios from 'axios'
 
 export const httpClient = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api',
+  baseURL: 'https://buses-api-322217156017.northamerica-south1.run.app',
   timeout: 12000,
   headers: {
     'Content-Type': 'application/json',
