@@ -263,8 +263,7 @@ export class ApiError extends Error {
   }
 }
 
-export const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, '') ?? 'http://localhost:8080/api/v1'
+export const API_BASE_URL = 'https://buses-api-322217156017.northamerica-south1.run.app/api/v1'
 
 function buildQuery(params: QueryParams) {
   const searchParams = new URLSearchParams()
