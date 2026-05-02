@@ -219,17 +219,33 @@ export function BusesPage({ token, canManage }: BusesPageProps) {
     if (!qrPreview || !selectedBus) return
 
     const printWindow = window.open('', '_blank', 'width=480,height=700')
-    if (!printWindow) return
+    if (!printWindow) {
+      alert('El navegador bloqueó la ventana emergente. Por favor, permite las ventanas emergentes para imprimir.')
+      return
+    }
 
-    const busCode = selectedBus.code
-    const busPlate = selectedBus.plate
-    const label = qrPreview.routeName ?? selectedBus.route?.name ?? 'Sin ruta asignada'
-    const pathLabel =
+    function esc(value: string) {
+      return value
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+    }
+
+    const busCode = esc(selectedBus.code)
+    const busPlate = esc(selectedBus.plate)
+    const label = esc(qrPreview.routeName ?? selectedBus.route?.name ?? 'Sin ruta asignada')
+    const pathLabel = esc(
       qrPreview.routeOrigin && qrPreview.routeDestination
         ? `${qrPreview.routeOrigin} → ${qrPreview.routeDestination}`
         : selectedBus.route
           ? `${selectedBus.route.origin} → ${selectedBus.route.destination}`
-          : 'Unidad sin ruta asignada'
+          : 'Unidad sin ruta asignada',
+    )
+    const qrSrc = esc(qrPreview.qrImageUrl)
+    const busId = esc(qrPreview.busId)
+    const provider = esc(qrPreview.provider)
 
     printWindow.document.write(`<!DOCTYPE html>
 <html lang="es">
@@ -261,33 +277,32 @@ export function BusesPage({ token, canManage }: BusesPageProps) {
     <p class="bus-code">${busCode}</p>
     <p class="plate">${busPlate}</p>
     <div class="qr-wrap">
-      <img src="${qrPreview.qrImageUrl}" alt="QR Bus ${busCode}" />
+      <img src="${qrSrc}" alt="QR Bus ${busCode}" />
     </div>
     <div class="meta">
       <div><span>Bus</span><strong>${busCode}</strong></div>
       <div><span>Ruta</span><strong>${label}</strong></div>
-      <div><span>Código interno</span><strong>${qrPreview.busId}</strong></div>
+      <div><span>Código interno</span><strong>${busId}</strong></div>
     </div>
     <p class="muted">Escanea este QR desde la app móvil para reconocer la unidad, validar el código del bus y su ruta actual.</p>
-    <p class="provider">Generado con ${qrPreview.provider}.</p>
+    <p class="provider">Generado con ${provider}.</p>
   </div>
 </body>
 </html>`)
     printWindow.document.close()
 
+    const pw = printWindow
+    function doPrint() {
+      pw.focus()
+      pw.print()
+    }
+
     const img = printWindow.document.querySelector('img')
     if (img) {
-      img.onload = () => {
-        printWindow.focus()
-        printWindow.print()
-      }
-      img.onerror = () => {
-        printWindow.focus()
-        printWindow.print()
-      }
+      img.onload = doPrint
+      img.onerror = doPrint
     } else {
-      printWindow.focus()
-      printWindow.print()
+      doPrint()
     }
   }
 
