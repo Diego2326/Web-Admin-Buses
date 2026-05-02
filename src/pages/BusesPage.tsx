@@ -299,8 +299,12 @@ export function BusesPage({ token, canManage }: BusesPageProps) {
 
     const img = printWindow.document.querySelector('img')
     if (img) {
-      img.onload = doPrint
-      img.onerror = doPrint
+      if (img.complete) {
+        doPrint()
+      } else {
+        img.onload = doPrint
+        img.onerror = doPrint
+      }
     } else {
       doPrint()
     }
