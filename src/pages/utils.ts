@@ -166,17 +166,12 @@ export function isMapMarker(value: MapMarker | null): value is MapMarker {
   return value !== null
 }
 
+/**
+ * La app móvil espera que el QR sea el código del bus como texto plano,
+ * por ejemplo: "BUS-102".
+ */
 export function buildBusQrValue(bus: Bus) {
-  return JSON.stringify({
-    type: 'BUS_BOARDING',
-    busId: bus.id,
-    busCode: bus.code,
-    busPlate: bus.plate,
-    routeId: bus.route?.id ?? null,
-    routeName: bus.route?.name ?? null,
-    routeOrigin: bus.route?.origin ?? null,
-    routeDestination: bus.route?.destination ?? null,
-  })
+  return bus.code.trim().toUpperCase()
 }
 
 export function buildFreeQrImageUrl(value: string, size = 320) {
