@@ -1,6 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import {
-  ApiError,
   api,
   type Bus,
   type BusQrCodeResponse,
@@ -108,18 +107,12 @@ export function BusesPage({ token, canManage }: BusesPageProps) {
       try {
         const response = await api.getBusQr(token, bus.id, controller.signal)
         setQrPreview(response)
-      } catch (error) {
+      } catch (_error) {
         if (controller.signal.aborted) {
           return
         }
 
         setQrPreview(createLocalBusQr(bus))
-
-        if (error instanceof ApiError && error.status === 404) {
-          setQrNotice('El endpoint /buses/{id}/qr aún no responde. Se mostró un QR generado con servicio público.')
-        } else {
-          setQrNotice('No se pudo cargar el QR desde la API. Se mostró una versión de respaldo con servicio público.')
-        }
       } finally {
         if (!controller.signal.aborted) {
           setQrLoading(false)
@@ -220,6 +213,82 @@ export function BusesPage({ token, canManage }: BusesPageProps) {
           }
         : current,
     )
+  }
+
+  function handlePrintQr() {
+    if (!qrPreview || !selectedBus) return
+
+    const printWindow = window.open('', '_blank', 'width=480,height=700')
+    if (!printWindow) return
+
+    const busCode = selectedBus.code
+    const busPlate = selectedBus.plate
+    const label = qrPreview.routeName ?? selectedBus.route?.name ?? 'Sin ruta asignada'
+    const pathLabel =
+      qrPreview.routeOrigin && qrPreview.routeDestination
+        ? `${qrPreview.routeOrigin} → ${qrPreview.routeDestination}`
+        : selectedBus.route
+          ? `${selectedBus.route.origin} → ${selectedBus.route.destination}`
+          : 'Unidad sin ruta asignada'
+
+    printWindow.document.write(`<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>QR Bus ${busCode}</title>
+  <style>
+    body { font-family: sans-serif; display: flex; justify-content: center; padding: 32px; margin: 0; background: #fff; }
+    .card { width: 320px; border: 1px solid #ddd; border-radius: 12px; padding: 24px; }
+    .route { font-weight: bold; font-size: 14px; margin: 0 0 2px; }
+    .route-path { font-size: 12px; color: #888; margin: 0 0 12px; }
+    .bus-code { font-size: 28px; font-weight: bold; margin: 8px 0 4px; }
+    .plate { color: #666; font-size: 14px; margin: 0 0 12px; }
+    .qr-wrap { display: flex; justify-content: center; margin: 16px 0; }
+    .qr-wrap img { width: 240px; height: 240px; }
+    .meta { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+    .meta div { flex: 1 1 100px; border: 1px solid #eee; border-radius: 8px; padding: 8px; }
+    .meta span { display: block; font-size: 11px; color: #888; }
+    .meta strong { font-size: 13px; }
+    .muted { font-size: 12px; color: #888; margin-top: 12px; }
+    .provider { font-size: 11px; color: #aaa; text-align: right; margin-top: 8px; }
+    @media print { body { padding: 0; } }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <p class="route">${label}</p>
+    <p class="route-path">${pathLabel}</p>
+    <p class="bus-code">${busCode}</p>
+    <p class="plate">${busPlate}</p>
+    <div class="qr-wrap">
+      <img src="${qrPreview.qrImageUrl}" alt="QR Bus ${busCode}" />
+    </div>
+    <div class="meta">
+      <div><span>Bus</span><strong>${busCode}</strong></div>
+      <div><span>Ruta</span><strong>${label}</strong></div>
+      <div><span>Código interno</span><strong>${qrPreview.busId}</strong></div>
+    </div>
+    <p class="muted">Escanea este QR desde la app móvil para reconocer la unidad, validar el código del bus y su ruta actual.</p>
+    <p class="provider">Generado con ${qrPreview.provider}.</p>
+  </div>
+</body>
+</html>`)
+    printWindow.document.close()
+
+    const img = printWindow.document.querySelector('img')
+    if (img) {
+      img.onload = () => {
+        printWindow.focus()
+        printWindow.print()
+      }
+      img.onerror = () => {
+        printWindow.focus()
+        printWindow.print()
+      }
+    } else {
+      printWindow.focus()
+      printWindow.print()
+    }
   }
 
   const selectedBus = data?.content.find((bus) => bus.id === selectedBusId) ?? null
@@ -418,6 +487,9 @@ export function BusesPage({ token, canManage }: BusesPageProps) {
                 Escanea este QR desde la app móvil para reconocer la unidad, validar el código del bus y su ruta actual.
               </p>
               <p className="bus-qr-provider">Generado con {qrPreview.provider}.</p>
+              <button className="primary-button bus-qr-print-btn" type="button" onClick={handlePrintQr}>
+                Guardar / Imprimir
+              </button>
             </div>
           ) : null}
         </article>
